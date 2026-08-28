@@ -5,11 +5,13 @@ import { ClassicModeSelector } from './components/ClassicModeSelector';
 import { GameBoard } from './components/GameBoard';
 import { ResultModal } from './components/ResultModal';
 import { LeaderboardView } from './components/LeaderboardView';
+import { SkinShopView } from './components/SkinShopView';
 import { AnswerHistory, Difficulty, GameMode, InputMode, LevelConfig, Operation } from './types';
 import {
   addLeaderboardScore,
   getAdventureLevels,
   getLeaderboard,
+  getPlayerSkins,
   getPlayerStats,
   getSavedPlayerName,
   saveAdventureLevelResult,
@@ -17,16 +19,20 @@ import {
 } from './utils/storage';
 import { generateProblem } from './utils/mathGenerator';
 import { getMuted, playClick, setMuted } from './utils/audio';
+import { getEquippedSkins } from './utils/skinsData';
 
 export default function App() {
   // Navigation & Screen View
-  const [currentView, setCurrentView] = useState<'adventure' | 'selector' | 'game' | 'result' | 'leaderboard'>('adventure');
+  const [currentView, setCurrentView] = useState<'adventure' | 'selector' | 'game' | 'result' | 'leaderboard' | 'shop'>('adventure');
 
   // Stored state
   const [stats, setStats] = useState(() => getPlayerStats());
+  const [skinsConfig, setSkinsConfig] = useState(() => getPlayerSkins());
   const [levels, setLevels] = useState(() => getAdventureLevels());
   const [leaderboard, setLeaderboard] = useState(() => getLeaderboard());
   const [isMutedState, setIsMutedState] = useState(() => getMuted());
+
+  const equipped = getEquippedSkins(skinsConfig);
 
   // Active game settings
   const [activeGameConfig, setActiveGameConfig] = useState<{
@@ -176,10 +182,15 @@ export default function App() {
     activeGameConfig.currentLevelNumber < levels.length;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">
+    <div
+      className={`min-h-screen ${
+        equipped.theme.themeStyles?.appBackground || 'bg-slate-950'
+      } text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950 transition-colors duration-500`}
+    >
       {/* Header */}
       <Header
         stats={stats}
+        skinsConfig={skinsConfig}
         currentView={currentView}
         gameMode={activeGameConfig.mode}
         isPlaying={currentView === 'game'}
@@ -195,11 +206,22 @@ export default function App() {
           <AdventureMap
             levels={levels}
             onSelectLevel={handleSelectAdventureLevel}
+            onOpenShop={() => setCurrentView('shop')}
           />
         )}
 
         {currentView === 'selector' && (
           <ClassicModeSelector onStartGame={handleStartClassicGame} />
+        )}
+
+        {currentView === 'shop' && (
+          <SkinShopView
+            stats={stats}
+            skinsConfig={skinsConfig}
+            onStatsUpdated={(newStats) => setStats(newStats)}
+            onSkinsUpdated={(newSkins) => setSkinsConfig(newSkins)}
+            onPlayGame={() => setCurrentView('adventure')}
+          />
         )}
 
         {currentView === 'game' && (
@@ -210,6 +232,7 @@ export default function App() {
             currentLevelNumber={activeGameConfig.currentLevelNumber}
             totalQuestions={activeGameConfig.questionsCount}
             inputMode={activeGameConfig.inputMode}
+            skinsConfig={skinsConfig}
             onGameOver={handleGameOver}
             onExit={() => {
               playClick();
@@ -232,6 +255,7 @@ export default function App() {
             onPlayAgain={() => setCurrentView('game')}
             onNextLevel={handleNextLevel}
             onGoHome={() => setCurrentView('adventure')}
+            onOpenShop={() => setCurrentView('shop')}
             hasNextLevel={hasNextLevel}
           />
         )}
@@ -249,12 +273,21 @@ export default function App() {
       </main>
 
       {/* Subtle Footer */}
-      <footer className="w-full py-4 text-center text-xs text-slate-500 border-t border-slate-900">
+      <footer className="w-full py-4 text-center text-xs text-slate-500 border-t border-slate-900/80">
         <div className="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>Matematika O'yini — Aqliy hisob va xotira mashqi</span>
-          <span>Darajalar va Ball to'plash tizimi</span>
+          <button
+            onClick={() => {
+              playClick();
+              setCurrentView('shop');
+            }}
+            className="hover:text-amber-400 underline transition-colors"
+          >
+            🎨 Skinlar va Uslublar Do'koni
+          </button>
         </div>
       </footer>
     </div>
   );
 }
+

@@ -10,9 +10,59 @@
   .animate-shake {
     animation: shake 0.35s ease-in-out;
   }
+
+  @keyframes pulseSubtle {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+
+  .animate-pulse-subtle {
+    animation: pulseSubtle 1s ease-in-out infinite;
+  }
+
+  @keyframes eqBar1 {
+    0%, 100% { height: 20%; }
+    50% { height: 95%; }
+  }
+  @keyframes eqBar2 {
+    0%, 100% { height: 85%; }
+    50% { height: 30%; }
+  }
+  @keyframes eqBar3 {
+    0%, 100% { height: 40%; }
+    50% { height: 100%; }
+  }
+  @keyframes eqBar4 {
+    0%, 100% { height: 90%; }
+    50% { height: 15%; }
+  }
+
+  .animate-eq-1 { animation: eqBar1 0.45s ease-in-out infinite; }
+  .animate-eq-2 { animation: eqBar2 0.35s ease-in-out infinite 0.1s; }
+  .animate-eq-3 { animation: eqBar3 0.5s ease-in-out infinite 0.2s; }
+  .animate-eq-4 { animation: eqBar4 0.4s ease-in-out infinite 0.15s; }
+
+  @keyframes penaltyProgress {
+    0% { width: 100%; }
+    100% { width: 0%; }
+  }
+
+  .animate-penalty-bar {
+    animation: penaltyProgress 2s linear forwards;
+  }
+
+  @keyframes songProgress {
+    0% { width: 0%; }
+    100% { width: 100%; }
+  }
+
+  .animate-song-bar {
+    animation: songProgress 5s linear forwards;
+  }
 }
 
 body {
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   user-select: none;
 }
+

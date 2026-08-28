@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Heart, Clock, Zap, Flame, Award, ArrowRight, Delete, X, AlertCircle } from 'lucide-react';
-import { AnswerHistory, Difficulty, GameMode, InputMode, MathProblem } from '../types';
+import { Heart, Clock, Zap, Flame, Award, ArrowRight, Delete, X, AlertCircle, Music, Volume2, Sparkles, Frown } from 'lucide-react';
+import { AnswerHistory, Difficulty, GameMode, InputMode, MathProblem, PlayerSkinsConfig } from '../types';
 import { calculatePoints } from '../utils/mathGenerator';
-import { playClick, playCombo, playCorrect, playTick, playWrong } from '../utils/audio';
+import { playClick, playCombo, playNextVictorySong, playTick, playWrong, stopCurrentSong, SongInfo } from '../utils/audio';
+import { getEquippedSkins } from '../utils/skinsData';
 
 interface GameBoardProps {
   mode: GameMode;
@@ -10,6 +11,7 @@ interface GameBoardProps {
   currentLevelNumber?: number;
   totalQuestions: number;
   inputMode: InputMode;
+  skinsConfig: PlayerSkinsConfig;
   onGameOver: (results: {
     score: number;
     history: AnswerHistory[];
@@ -26,10 +28,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   currentLevelNumber,
   totalQuestions,
   inputMode: initialInputMode,
+  skinsConfig,
   onGameOver,
   onExit,
   generateNextProblem,
 }) => {
+  // Active equipped skins
+  const equipped = getEquippedSkins(skinsConfig);
+
   // Game state
   const [currentProblem, setCurrentProblem] = useState<MathProblem>(() => generateNextProblem(currentLevelNumber));
   const [questionIndex, setQuestionIndex] = useState(1);
@@ -38,6 +44,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const [maxStreak, setMaxStreak] = useState(0);
   const [lives, setLives] = useState(3);
   const [inputMode, setInputMode] = useState<InputMode>(initialInputMode);
+
+  // Active playing 5s song state
+  const [activeSong, setActiveSong] = useState<SongInfo | null>(null);
+  const [songProgressKey, setSongProgressKey] = useState<number>(0);
 
   // Time management
   const [timeRemaining, setTimeRemaining] = useState(currentProblem.timeLimit);
@@ -54,16 +64,29 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     streakBonus: number;
   } | null>(null);
 
+  // 2-second penalty popup state for wrong answers
+  const [showPenaltyModal, setShowPenaltyModal] = useState(false);
+
   const historyRef = useRef<AnswerHistory[]>([]);
   const questionStartTimeRef = useRef<number>(Date.now());
   const timerIntervalRef = useRef<number | null>(null);
   const hasFinishedRef = useRef(false);
+  const songTimeoutRef = useRef<number | null>(null);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopCurrentSong();
+      if (songTimeoutRef.current) clearTimeout(songTimeoutRef.current);
+    };
+  }, []);
 
   // Finish game callback
   const finishGame = useCallback(() => {
     if (hasFinishedRef.current) return;
     hasFinishedRef.current = true;
 
+    stopCurrentSong();
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
     }
@@ -101,65 +124,120 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       setMaxStreak((prev) => Math.max(prev, newStreak));
       setScore((prev) => prev + points);
 
-      if (newStreak >= 3) {
-        playCombo(newStreak);
-      } else {
-        playCorrect();
+      // Play 5-second celebratory rotating song
+      const songInfo = playNextVictorySong();
+      if (songInfo) {
+        setActiveSong(songInfo);
+        setSongProgressKey((k) => k + 1);
+        if (songTimeoutRef.current) clearTimeout(songTimeoutRef.current);
+        songTimeoutRef.current = window.setTimeout(() => {
+          setActiveSong(null);
+        }, 5000);
       }
+
+      setFeedback({
+        isCorrect: true,
+        pointsEarned: points,
+        streakBonus,
+      });
+
+      historyRef.current.push({
+        problem: currentProblem,
+        userAnswer: answer,
+        isCorrect: true,
+        timeTaken,
+        pointsEarned: points,
+      });
+
+      // Smooth transition to next problem after 1.1s so player sees the answer
+      // and the 5-second song continues playing smoothly in background!
+      const timer = setTimeout(() => {
+        if (hasFinishedRef.current) return;
+
+        if (mode === 'classic' || mode === 'adventure') {
+          if (questionIndex >= totalQuestions) {
+            finishGame();
+            return;
+          }
+        }
+
+        const nextProblem = generateNextProblem(currentLevelNumber);
+        setCurrentProblem(nextProblem);
+        setQuestionIndex((prev) => prev + 1);
+        setTimeRemaining(nextProblem.timeLimit);
+        setIsAnswered(false);
+        setSelectedAnswer(null);
+        setNumpadInput('');
+        setFeedback(null);
+        questionStartTimeRef.current = Date.now();
+      }, 1100);
+
+      return () => clearTimeout(timer);
     } else {
+      // WRONG ANSWER:
+      // Deduct 1 ball and show "-1 ball ayrildi!" on screen for 2 full seconds!
       newStreak = 0;
       setStreak(0);
+      setScore((prev) => Math.max(0, prev - 1));
       playWrong();
 
+      setFeedback({
+        isCorrect: false,
+        pointsEarned: -1,
+        streakBonus: 0,
+      });
+
+      setShowPenaltyModal(true);
+
+      historyRef.current.push({
+        problem: currentProblem,
+        userAnswer: answer,
+        isCorrect: false,
+        timeTaken,
+        pointsEarned: -1,
+      });
+
+      let livesDepleted = false;
       if (mode === 'survival') {
         setLives((prev) => {
           const updated = prev - 1;
           if (updated <= 0) {
-            setTimeout(() => finishGame(), 700);
+            livesDepleted = true;
           }
           return updated;
         });
       }
-    }
 
-    setFeedback({
-      isCorrect,
-      pointsEarned: points,
-      streakBonus,
-    });
+      // Show the penalty for exactly 2 seconds (2000 ms) before proceeding
+      const timer = setTimeout(() => {
+        setShowPenaltyModal(false);
+        if (hasFinishedRef.current) return;
 
-    historyRef.current.push({
-      problem: currentProblem,
-      userAnswer: answer,
-      isCorrect,
-      timeTaken,
-      pointsEarned: points,
-    });
-
-    // Advance to next problem or finish
-    const timer = setTimeout(() => {
-      if (hasFinishedRef.current) return;
-
-      if (mode === 'classic' || mode === 'adventure') {
-        if (questionIndex >= totalQuestions) {
+        if (livesDepleted) {
           finishGame();
           return;
         }
-      }
 
-      // Generate next question
-      const nextProblem = generateNextProblem(currentLevelNumber);
-      setCurrentProblem(nextProblem);
-      setQuestionIndex((prev) => prev + 1);
-      setTimeRemaining(nextProblem.timeLimit);
-      setIsAnswered(false);
-      setSelectedAnswer(null);
-      setNumpadInput('');
-      setFeedback(null);
-      questionStartTimeRef.current = Date.now();
-    }, 700);
+        if (mode === 'classic' || mode === 'adventure') {
+          if (questionIndex >= totalQuestions) {
+            finishGame();
+            return;
+          }
+        }
 
-    return () => clearTimeout(timer);
+        const nextProblem = generateNextProblem(currentLevelNumber);
+        setCurrentProblem(nextProblem);
+        setQuestionIndex((prev) => prev + 1);
+        setTimeRemaining(nextProblem.timeLimit);
+        setIsAnswered(false);
+        setSelectedAnswer(null);
+        setNumpadInput('');
+        setFeedback(null);
+        questionStartTimeRef.current = Date.now();
+      }, 2000);
+
+      return () => clearTimeout(timer);
+    }
   }, [
     isAnswered,
     currentProblem,
@@ -191,10 +269,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       }
 
       setTimeRemaining((prev) => {
-        if (isAnswered) return prev;
+        if (isAnswered || showPenaltyModal) return prev;
         if (prev <= 1) {
-          // Time expired for this question
-          handleAnswer(-999999); // Treat as wrong answer
+          // Time expired for this question: trigger wrong answer penalty
+          handleAnswer(-999999);
           return 0;
         }
         if (prev <= 4) {
@@ -209,12 +287,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         clearInterval(timerIntervalRef.current);
       }
     };
-  }, [mode, isAnswered, finishGame, handleAnswer]);
+  }, [mode, isAnswered, showPenaltyModal, finishGame, handleAnswer]);
 
   // Keyboard shortcut listener for fast answering
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isAnswered) return;
+      if (isAnswered || showPenaltyModal) return;
 
       // Multiple choice shortcuts (1, 2, 3, 4) or (A, B, C, D)
       if (inputMode === 'choice') {
@@ -250,22 +328,71 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAnswered, inputMode, currentProblem, numpadInput, handleAnswer]);
+  }, [isAnswered, showPenaltyModal, inputMode, currentProblem, numpadInput, handleAnswer]);
 
   // Timer percentage for question
   const timePercent = Math.max(0, (timeRemaining / currentProblem.timeLimit) * 100);
 
   return (
-    <div id="game-board-container" className="w-full max-w-2xl mx-auto px-4 py-4 sm:py-6">
+    <div id="game-board-container" className="w-full max-w-2xl mx-auto px-4 py-4 sm:py-6 relative">
+      {/* 2-Second Penalty Overlay Banner for Wrong Answers */}
+      {showPenaltyModal && (
+        <div
+          id="penalty-alert-overlay"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4 animate-fade-in"
+        >
+          <div className="bg-slate-900 border-2 border-rose-500 rounded-3xl p-6 sm:p-8 max-w-md w-full text-center shadow-2xl shadow-rose-950/80 animate-shake relative overflow-hidden">
+            {/* Top 2-second countdown timer bar */}
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-slate-800">
+              <div className="h-full bg-rose-500 animate-penalty-bar" />
+            </div>
+
+            <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 rounded-2xl bg-rose-500/20 border-2 border-rose-500/60 flex items-center justify-center text-rose-400">
+              <Frown className="w-10 h-10 sm:w-12 sm:h-12" />
+            </div>
+
+            <div className="inline-block px-4 py-1.5 rounded-xl bg-rose-500 text-white font-black text-lg sm:text-xl shadow-lg mb-3 animate-bounce">
+              -1 BALL AYRILDI!
+            </div>
+
+            <h3 className="text-xl sm:text-2xl font-black text-white mb-2">
+              Javob Noto'g'ri!
+            </h3>
+
+            <div className="bg-slate-950/80 rounded-2xl p-3.5 border border-slate-800 mb-3 text-left">
+              <div className="text-xs text-slate-400 font-semibold mb-1">To'g'ri hisob:</div>
+              <div className="text-lg font-mono font-black text-emerald-400">
+                {currentProblem.expression} = {currentProblem.correctAnswer}
+              </div>
+              <div className="text-xs text-slate-300 mt-1">
+                {currentProblem.explanation}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center gap-2 text-xs font-semibold text-rose-300/80">
+              <Clock className="w-3.5 h-3.5" />
+              <span>2 soniyadan keyin keyingi misol...</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top HUD Card */}
-      <div className="bg-slate-800/95 border border-slate-700/80 rounded-2xl p-3.5 sm:p-4 shadow-xl mb-4">
+      <div
+        className={`${
+          equipped.theme.themeStyles?.hudBackground || 'bg-slate-800/95'
+        } ${
+          equipped.theme.themeStyles?.hudBorder || 'border-slate-700/80'
+        } border rounded-2xl p-3.5 sm:p-4 shadow-xl mb-3`}
+      >
         <div className="flex items-center justify-between gap-2">
-          {/* Question Counter or Mode Badge */}
-          <div className="flex items-center gap-2">
+          {/* Question Counter or Mode Badge + Equipped Avatar */}
+          <div className="flex items-center gap-2.5">
             <button
               id="btn-exit-game"
               onClick={() => {
                 playClick();
+                stopCurrentSong();
                 onExit();
               }}
               title="Chiqish"
@@ -273,21 +400,26 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             >
               <X className="w-4 h-4" />
             </button>
-            <div className="flex flex-col">
-              <span className="text-[10px] uppercase font-bold text-slate-400">
-                {mode === 'adventure'
-                  ? `${currentLevelNumber}-Bosqich`
-                  : mode === 'timeAttack'
-                  ? 'Tezkor Vaqt'
-                  : mode === 'survival'
-                  ? 'Omon Qolish'
-                  : 'Misol'}
-              </span>
-              <span className="text-sm font-extrabold text-white">
-                {mode === 'timeAttack'
-                  ? `${questionIndex}-misol`
-                  : `${questionIndex} / ${totalQuestions}`}
-              </span>
+
+            {/* Avatar Badge */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xl sm:text-2xl">{equipped.avatar.avatarData?.emoji || '🤖'}</span>
+              <div className="flex flex-col">
+                <span className="text-[10px] uppercase font-bold text-slate-400">
+                  {mode === 'adventure'
+                    ? `${currentLevelNumber}-Bosqich`
+                    : mode === 'timeAttack'
+                    ? 'Tezkor Vaqt'
+                    : mode === 'survival'
+                    ? 'Omon Qolish'
+                    : 'Misol'}
+                </span>
+                <span className="text-sm font-extrabold text-white">
+                  {mode === 'timeAttack'
+                    ? `${questionIndex}-misol`
+                    : `${questionIndex} / ${totalQuestions}`}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -354,23 +486,62 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         </div>
       </div>
 
-      {/* Main Math Card */}
+      {/* 5-Second Alternating Song Banner (Active when answered correctly) */}
+      {activeSong && (
+        <div
+          id="active-song-banner"
+          className="mb-3 bg-gradient-to-r from-indigo-900/90 via-purple-900/90 to-amber-900/80 border border-purple-500/50 rounded-2xl p-2.5 sm:p-3 shadow-lg shadow-purple-950/40 relative overflow-hidden animate-fade-in"
+        >
+          {/* 5s progress line */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-purple-950">
+            <div
+              key={songProgressKey}
+              className="h-full bg-gradient-to-r from-amber-400 via-pink-400 to-purple-400 animate-song-bar"
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-2 mt-0.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xl shrink-0 animate-bounce">{activeSong.emoji}</span>
+              <div className="truncate">
+                <div className="text-[10px] uppercase font-bold tracking-wider text-purple-300 flex items-center gap-1">
+                  <Music className="w-3 h-3 text-amber-400" />
+                  <span>5 soniyalik g'alaba qo'shig'i (#{activeSong.index}/5)</span>
+                </div>
+                <div className="text-xs sm:text-sm font-extrabold text-white truncate">
+                  {activeSong.name}
+                </div>
+              </div>
+            </div>
+
+            {/* Moving Equalizer Bars */}
+            <div className="flex items-end gap-1 h-5 shrink-0 px-2">
+              <div className="w-1 bg-amber-400 rounded-full animate-eq-1" />
+              <div className="w-1 bg-pink-400 rounded-full animate-eq-2" />
+              <div className="w-1 bg-purple-400 rounded-full animate-eq-3" />
+              <div className="w-1 bg-emerald-400 rounded-full animate-eq-4" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Math Card with Equipped Card Frame */}
       <div
         id="problem-display-card"
-        className={`relative rounded-3xl p-6 sm:p-10 border text-center transition-all duration-200 shadow-2xl overflow-hidden ${
+        className={`relative rounded-3xl p-6 sm:p-10 text-center transition-all duration-200 overflow-hidden ${
           feedback
             ? feedback.isCorrect
-              ? 'bg-emerald-950/40 border-emerald-500/80 shadow-emerald-500/10 ring-4 ring-emerald-500/20'
-              : 'bg-rose-950/40 border-rose-500/80 shadow-rose-500/10 ring-4 ring-rose-500/20 animate-shake'
-            : streak >= 3
-            ? 'bg-slate-800/95 border-amber-500/60 shadow-amber-500/10'
-            : 'bg-slate-800/90 border-slate-700/80'
+              ? 'bg-emerald-950/40 border-2 border-emerald-500/80 shadow-emerald-500/20 ring-4 ring-emerald-500/20'
+              : 'bg-rose-950/40 border-2 border-rose-500/80 shadow-rose-500/20 ring-4 ring-rose-500/20 animate-shake'
+            : `${equipped.cardFrame.cardStyles?.borderClass || 'border border-slate-700/80'} ${
+                equipped.cardFrame.cardStyles?.glowShadowClass || 'shadow-2xl'
+              } ${equipped.cardFrame.cardStyles?.innerCardBg || 'bg-slate-800/90'}`
         }`}
       >
         {/* Floating feedback score */}
         {feedback && (
           <div
-            className={`absolute top-3 right-4 sm:top-4 sm:right-6 text-sm sm:text-base font-extrabold px-3 py-1 rounded-xl shadow-lg animate-fade-in ${
+            className={`absolute top-3 right-4 sm:top-4 sm:right-6 text-sm sm:text-base font-extrabold px-3.5 py-1.5 rounded-xl shadow-lg animate-fade-in ${
               feedback.isCorrect
                 ? 'bg-emerald-500 text-slate-950'
                 : 'bg-rose-500 text-white'
@@ -379,7 +550,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             {feedback.isCorrect ? (
               <span>+{feedback.pointsEarned} Ball! {feedback.streakBonus > 0 && `(+${feedback.streakBonus} Combo)`}</span>
             ) : (
-              <span>Xato! To'g'ri javob: {currentProblem.correctAnswer}</span>
+              <span>-1 Ball ayrildi!</span>
             )}
           </div>
         )}
@@ -387,14 +558,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         {/* Expression */}
         <div className="py-4 sm:py-6">
           <div className="text-4xl sm:text-6xl font-black text-white font-mono tracking-wider drop-shadow-md select-none">
-            {currentProblem.expression} = <span className="text-amber-400">?</span>
+            {currentProblem.expression} = <span className={equipped.cardFrame.cardStyles?.accentText || 'text-amber-400'}>?</span>
           </div>
 
           {/* Hint / Explanation when answered incorrectly */}
           {feedback && !feedback.isCorrect && (
             <div className="mt-4 p-3 bg-rose-950/70 border border-rose-800/80 rounded-xl text-rose-200 text-xs sm:text-sm font-medium flex items-center justify-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-              <span>Tushuntirish: {currentProblem.explanation}</span>
+              <span>To'g'ri javob: {currentProblem.correctAnswer} — {currentProblem.explanation}</span>
             </div>
           )}
         </div>
@@ -417,22 +588,22 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       {/* Answer Area */}
       <div className="mt-5">
         {inputMode === 'choice' ? (
-          /* 4 Multiple Choice Buttons */
+          /* 4 Multiple Choice Buttons styled by equipped Button Skin */
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
             {currentProblem.options.map((option, idx) => {
               const letter = ['A', 'B', 'C', 'D'][idx];
               const isChosen = selectedAnswer === option;
               const isCorrectAnswer = option === currentProblem.correctAnswer;
 
-              let buttonStyle = 'bg-slate-800/90 border-slate-700/80 text-white hover:border-amber-500/60 hover:bg-slate-700/60';
+              let buttonClass = equipped.buttonStyle.buttonStyles?.baseClass || 'bg-slate-800/90 border-slate-700/80 text-white hover:border-amber-500/60 hover:bg-slate-700/60';
 
               if (isAnswered) {
                 if (isCorrectAnswer) {
-                  buttonStyle = 'bg-emerald-600 border-emerald-400 text-white ring-4 ring-emerald-500/30';
+                  buttonClass = equipped.buttonStyle.buttonStyles?.correctClass || 'bg-emerald-600 border-emerald-400 text-white ring-4 ring-emerald-500/30';
                 } else if (isChosen && !isCorrectAnswer) {
-                  buttonStyle = 'bg-rose-600 border-rose-400 text-white';
+                  buttonClass = equipped.buttonStyle.buttonStyles?.wrongClass || 'bg-rose-600 border-rose-400 text-white';
                 } else {
-                  buttonStyle = 'bg-slate-800/40 border-slate-800 text-slate-500 opacity-50';
+                  buttonClass = 'bg-slate-800/40 border-slate-800 text-slate-500 opacity-40';
                 }
               }
 
@@ -442,9 +613,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   id={`choice-btn-${idx}`}
                   disabled={isAnswered}
                   onClick={() => handleAnswer(option)}
-                  className={`p-4 sm:p-5 rounded-2xl border text-xl sm:text-2xl font-black font-mono transition-all duration-150 flex items-center justify-between active:scale-[0.97] shadow-lg ${buttonStyle}`}
+                  className={`p-4 sm:p-5 rounded-2xl text-xl sm:text-2xl font-black font-mono transition-all duration-150 flex items-center justify-between shadow-lg ${buttonClass}`}
                 >
-                  <span className="w-7 h-7 rounded-lg bg-slate-900/60 border border-slate-700 text-xs font-bold font-sans text-slate-400 flex items-center justify-center">
+                  <span
+                    className={`w-7 h-7 rounded-lg text-xs font-bold font-sans flex items-center justify-center ${
+                      equipped.buttonStyle.buttonStyles?.indicatorClass || 'bg-slate-900/60 border border-slate-700 text-slate-400'
+                    }`}
+                  >
                     {letter}
                   </span>
                   <span className="flex-1 text-center">{option}</span>
@@ -526,3 +701,5 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     </div>
   );
 };
+
+

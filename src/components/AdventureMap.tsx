@@ -1,14 +1,15 @@
 import React from 'react';
-import { Star, Lock, Play, Award, Zap, CheckCircle2 } from 'lucide-react';
+import { Star, Lock, Play, Award, Zap, CheckCircle2, Palette, Sparkles, ArrowRight } from 'lucide-react';
 import { LevelConfig } from '../types';
 import { playClick } from '../utils/audio';
 
 interface AdventureMapProps {
   levels: LevelConfig[];
   onSelectLevel: (level: LevelConfig) => void;
+  onOpenShop?: () => void;
 }
 
-export const AdventureMap: React.FC<AdventureMapProps> = ({ levels, onSelectLevel }) => {
+export const AdventureMap: React.FC<AdventureMapProps> = ({ levels, onSelectLevel, onOpenShop }) => {
   const totalStars = levels.reduce((sum, l) => sum + l.stars, 0);
   const maxPossibleStars = levels.length * 3;
   const completedCount = levels.filter((l) => l.stars > 0).length;
@@ -190,6 +191,46 @@ export const AdventureMap: React.FC<AdventureMapProps> = ({ levels, onSelectLeve
           );
         })}
       </div>
+
+      {/* Skin Shop Promo Section */}
+      {onOpenShop && (
+        <div className="mt-8 bg-gradient-to-r from-purple-950/60 via-slate-900/80 to-amber-950/50 border border-purple-500/40 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-purple-600 to-amber-500 flex items-center justify-center text-2xl shadow-lg shadow-purple-500/30 shrink-0">
+              🎨
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase font-black bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded border border-purple-500/30">
+                  Yangi Uslublar
+                </span>
+                <span className="text-amber-400 text-xs font-bold flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5" /> Ballaringizga xarid qiling!
+                </span>
+              </div>
+              <h3 className="text-lg font-extrabold text-white mt-0.5">
+                Skinlar va Maxsus Mavzular Do'koni
+              </h3>
+              <p className="text-xs text-slate-300">
+                To'plagan ballaringiz evaziga Kiber Bot, Neom Neon, Oltin Chempion va Qora Tungi mavzularni oching!
+              </p>
+            </div>
+          </div>
+
+          <button
+            id="btn-adventure-open-shop"
+            onClick={() => {
+              playClick();
+              onOpenShop();
+            }}
+            className="w-full sm:w-auto px-5 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-amber-500 hover:from-purple-400 hover:to-amber-400 text-slate-950 font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-purple-500/25 shrink-0 transition-transform active:scale-95"
+          >
+            <Palette className="w-4 h-4" />
+            <span>Do'konga O'tish</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

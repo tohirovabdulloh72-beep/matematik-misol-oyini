@@ -16,6 +16,7 @@ interface ResultModalProps {
   onPlayAgain: () => void;
   onNextLevel?: () => void;
   onGoHome: () => void;
+  onOpenShop?: () => void;
   hasNextLevel?: boolean;
 }
 
@@ -31,6 +32,7 @@ export const ResultModal: React.FC<ResultModalProps> = ({
   onPlayAgain,
   onNextLevel,
   onGoHome,
+  onOpenShop,
   hasNextLevel,
 }) => {
   const [showReview, setShowReview] = useState(false);
@@ -173,6 +175,19 @@ export const ResultModal: React.FC<ResultModalProps> = ({
             >
               <span>Keyingi Bosqich</span>
               <ArrowRight className="w-4 h-4" />
+            </button>
+          )}
+
+          {onOpenShop && (
+            <button
+              id="btn-result-shop"
+              onClick={() => {
+                playClick();
+                onOpenShop();
+              }}
+              className="w-full sm:w-auto py-3.5 px-4 rounded-xl bg-purple-950/80 hover:bg-purple-900 border border-purple-500/40 text-purple-200 font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-95"
+            >
+              <span>🎨 Do'kon</span>
             </button>
           )}
 

@@ -1,4 +1,4 @@
-import { LeaderboardItem, LevelConfig, PlayerStats } from '../types';
+import { LeaderboardItem, LevelConfig, PlayerSkinsConfig, PlayerStats } from '../types';
 import { INITIAL_ADVENTURE_LEVELS, getRankTitle } from './mathGenerator';
 
 const STATS_KEY = 'math_game_stats_v1';
@@ -206,3 +206,114 @@ export function addLeaderboardScore(entry: Omit<LeaderboardItem, 'id' | 'date'>)
 
   return updated;
 }
+
+const SKINS_KEY = 'math_game_player_skins_v1';
+
+export function getPlayerSkins(): PlayerSkinsConfig {
+  const defaultSkins: PlayerSkinsConfig = {
+    unlockedSkinIds: ['theme_cyber', 'avatar_bot', 'frame_classic', 'btn_modern'],
+    equippedTheme: 'theme_cyber',
+    equippedAvatar: 'avatar_bot',
+    equippedCardFrame: 'frame_classic',
+    equippedButtonStyle: 'btn_modern',
+  };
+
+  if (typeof window === 'undefined') return defaultSkins;
+
+  try {
+    const raw = localStorage.getItem(SKINS_KEY);
+    if (!raw) return defaultSkins;
+    const parsed: PlayerSkinsConfig = JSON.parse(raw);
+    // Ensure default starter skins are always present in unlocked list
+    const mergedUnlocked = Array.from(
+      new Set([...defaultSkins.unlockedSkinIds, ...(parsed.unlockedSkinIds || [])])
+    );
+    return {
+      ...defaultSkins,
+      ...parsed,
+      unlockedSkinIds: mergedUnlocked,
+    };
+  } catch {
+    return defaultSkins;
+  }
+}
+
+export function savePlayerSkins(config: PlayerSkinsConfig): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(SKINS_KEY, JSON.stringify(config));
+}
+
+export function equipPlayerSkin(skinId: string, category: 'theme' | 'avatar' | 'cardFrame' | 'buttonStyle'): PlayerSkinsConfig {
+  const current = getPlayerSkins();
+  const updated: PlayerSkinsConfig = { ...current };
+
+  if (category === 'theme') updated.equippedTheme = skinId;
+  else if (category === 'avatar') updated.equippedAvatar = skinId;
+  else if (category === 'cardFrame') updated.equippedCardFrame = skinId;
+  else if (category === 'buttonStyle') updated.equippedButtonStyle = skinId;
+
+  savePlayerSkins(updated);
+  return updated;
+}
+
+export function buyPlayerSkin(
+  skinId: string,
+  price: number,
+  category: 'theme' | 'avatar' | 'cardFrame' | 'buttonStyle'
+): {
+  success: boolean;
+  message: string;
+  updatedStats?: PlayerStats;
+  updatedSkins?: PlayerSkinsConfig;
+} {
+  const currentSkins = getPlayerSkins();
+  if (currentSkins.unlockedSkinIds.includes(skinId)) {
+    return {
+      success: true,
+      message: "Bu skin allaqachon sotib olingan!",
+      updatedSkins: currentSkins,
+    };
+  }
+
+  const currentStats = getPlayerStats();
+  if (currentStats.totalScore < price) {
+    return {
+      success: false,
+      message: `Ball yetarli emas! Sizda ${currentStats.totalScore} ball bor, skin narxi esa ${price} ball.`,
+    };
+  }
+
+  // Deduct points from totalScore
+  const newScore = currentStats.totalScore - price;
+  const updatedStats: PlayerStats = {
+    ...currentStats,
+    totalScore: newScore,
+    rankTitle: getRankTitle(newScore),
+  };
+
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(STATS_KEY, JSON.stringify(updatedStats));
+  }
+
+  // Add skin to unlocked list and auto-equip
+  const updatedUnlocked = [...currentSkins.unlockedSkinIds, skinId];
+  const updatedSkins: PlayerSkinsConfig = {
+    ...currentSkins,
+    unlockedSkinIds: updatedUnlocked,
+  };
+
+  if (category === 'theme') updatedSkins.equippedTheme = skinId;
+  else if (category === 'avatar') updatedSkins.equippedAvatar = skinId;
+  else if (category === 'cardFrame') updatedSkins.equippedCardFrame = skinId;
+  else if (category === 'buttonStyle') updatedSkins.equippedButtonStyle = skinId;
+
+  savePlayerSkins(updatedSkins);
+
+  return {
+    success: true,
+    message: "Skin muvaffaqiyatli sotib olindi va kiyildi! 🎉",
+    updatedStats,
+    updatedSkins,
+  };
+}
+

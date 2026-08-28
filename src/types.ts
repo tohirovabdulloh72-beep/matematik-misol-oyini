@@ -61,3 +61,55 @@ export interface LeaderboardItem {
   date: string;
   accuracy: number;
 }
+
+export type SkinCategory = 'theme' | 'avatar' | 'cardFrame' | 'buttonStyle';
+
+export interface SkinItem {
+  id: string;
+  name: string;
+  nameUz: string;
+  category: SkinCategory;
+  price: number; // in points/ball
+  description: string;
+  icon: string; // emoji or identifier
+  previewGradient: string;
+  tag?: string;
+  themeStyles?: {
+    appBackground: string;
+    boardBackground: string;
+    boardBorder: string;
+    hudBackground: string;
+    hudBorder: string;
+    accentColor: string;
+    accentGlow: string;
+  };
+  cardStyles?: {
+    borderClass: string;
+    glowShadowClass: string;
+    headerBadgeClass: string;
+    innerCardBg: string;
+    accentText: string;
+  };
+  buttonStyles?: {
+    baseClass: string;
+    selectedClass: string;
+    correctClass: string;
+    wrongClass: string;
+    indicatorClass: string;
+  };
+  avatarData?: {
+    emoji: string;
+    badgeText: string;
+    colorClass: string;
+    borderClass: string;
+  };
+}
+
+export interface PlayerSkinsConfig {
+  unlockedSkinIds: string[];
+  equippedTheme: string;
+  equippedAvatar: string;
+  equippedCardFrame: string;
+  equippedButtonStyle: string;
+}
+
